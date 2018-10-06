@@ -58,10 +58,8 @@ class avvo(scrapy.Spider):
 
 		url = "https://www.avvo.com/free-legal-advice/recent"
 
-		url = "https://www.avvo.com/attorneys/30339-ga-fareesh-sarangi-3599528.html"
-
 		yield scrapy.Request(url, 
-					callback=self.parse_profile, 
+					callback=self.parse, 
 					meta={
 						'proxy' : random.choice(self.proxy_list),
 					}
@@ -133,12 +131,9 @@ class avvo(scrapy.Spider):
 
 			item['Practice_Areas'] = ', '.join([ practice.split(':')[0] for practice in practice_list ])
 
-			item['About_Summary'] = self.validate(''.join(response.xpath('//section[@id="about"]//span[@class="v-specialty-display"]//text()').extract()))
+			item['About_Summary'] = self.validate(''.join(response.xpath('//section[@id="about"]//p[contains(@class, "js-specialty-display-container")]//text()').extract()))
 
 			item['About_Description'] = self.validate(''.join(response.xpath('//section[@id="about"]//div[@id="js-truncated-aboutme"]//text()').extract()))
-
-
-			pdb.set_trace()
 
 			raw_address = self.validate(' '.join(response.xpath('//address[contains(@class, "js-context js-address js-v-address")]')[0].xpath('.//p//text()').extract()))
 

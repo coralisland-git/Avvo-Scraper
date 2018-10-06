@@ -48,7 +48,7 @@ class ChainxyPipeline(object):
             'Website_Address', 'Email', 'About_Summary', 'About_Description',
             'License', 'Education', 'Awards', 'Work_Experience', 'Associations',
             'Publications', 'Speaking_Engagements', 'Legal_Cases', 'Avatar','Rating',
-            'Review', 'Link_Via', 'Link'
+            'Review','Link'
         ]
        
         self.exporter.start_exporting()        
