@@ -32,15 +32,24 @@ import pdb
 import usaddress
 
 
-class avvo(scrapy.Spider):
+class avvo_all(scrapy.Spider):
 
-	name = 'avvo'
+	name = 'avvo_all'
 
 	domain = 'https://www.avvo.com'
 
 	history = []
 
 	output = []
+
+	headers = {
+		"accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
+		"accept-encoding": "gzip, deflate, br",
+		"upgrade-insecure-requests": "1",
+		"cookie": "_persistent_session_id=BAh7BkkiD3Nlc3Npb25faWQGOgZFVEkiKTU5YWExZTMyLTNiN2ItNGNlMy1h%0AMWMzLTI2MDBlNzZkMmJkZQY7AFQ%3D%0A; ibeugdpr=NOTINEU:1538849072; pxvid=7ab64f00-cb15-11e8-8eb6-df92c2817ad6; _pxvid=7ab64f00-cb15-11e8-8eb6-df92c2817ad6; _profile_persistent_session_id=BAh7BkkiD3Nlc3Npb25faWQGOgZFVEkiKTY3MTE3MGMxLTFlNDUtNGE1NC05%0AMzkxLTI2MjE1ZDVlNTkxOQY7AFQ%3D%0A--606a9a83562f36d14ee91363f1cf11081721af5c; avvo-login=BAh7BkkiD3Nlc3Npb25faWQGOgZFVEkiKTNlZDlmN2QxLTAyOGMtNDM2ZC05%0AZDc2LTFmYThkYTdkY2NiOQY7AFQ%3D%0A--efacab1e099f91e22997646a35d4803229207ebe; _session_id=acde2dcb3b195947466a8ede6438c9cf; serp_search_prev_sig=99914b932bd37a50b983c5e7c90ae93b; serp_search_sig=25bcb490f7e93c9a3255c509fbf530d499914b932bd37a50b983c5e7c90ae93b; maxLength=925; aa_session_count=1; aa_persistent_session_id=59aa1e32-3b7b-4ce3-a1c3-2600e76d2bde; aa_session_id=59aa1e32-3b7b-4ce3-a1c3-2600e76d2bde.1",
+		"if-none-match": 'W/"95e44b7577988b56cb5880f812b188b4"',
+		"user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/69.0.3497.100 Safari/537.36"
+	}
 
 
 	def __init__(self):
@@ -56,71 +65,71 @@ class avvo(scrapy.Spider):
 	
 	def start_requests(self):
 
-		url = "https://www.avvo.com/free-legal-advice/recent"
+		url = "https://www.avvo.com/find-a-lawyer/all-practice-areas"
 
 		yield scrapy.Request(url, 
-					callback=self.parse, 
+					callback=self.parse_category, 
+					headers=self.headers,
 					meta={
 						'proxy' : random.choice(self.proxy_list),
 					}
-				) 
+				)
 
-	def parse(self, response):
+	def parse_category(self, response):
 
-		for idx in range(5000, 10000): 
+		category_list = response.xpath('//div[@id="areas-of-law"]//div[@class="v-content-wrapper"]//a/@href').extract()
 
-			url = "https://www.avvo.com/free-legal-advice/recent?page=" + str(idx)
+		for category in category_list[110: 132]:
 
-			yield scrapy.Request(url, 
-						callback=self.parse_list, 
-						meta={
-							'proxy' : random.choice(self.proxy_list),
-						}
-					) 
+			url = self.domain + category
+
+			yield scrapy.Request(url, callback=self.parse_state, 
+					headers = self.headers,
+					meta={
+						'proxy' : random.choice(self.proxy_list),
+					})
+
+
+	def parse_state(self, response):
+
+		state_list = response.xpath('//div[@id="js-top-state-link-farm"]//li[@class="u-margin-bottom-half"]//a/@href').extract()
+
+		for state in state_list:
+
+			state = self.domain + state
+
+			yield scrapy.Request(state, callback=self.parse_list, 
+					headers=self.headers,
+					meta={
+						'proxy' : random.choice(self.proxy_list),
+					})
+
 
 	def parse_list(self, response):
 
-		answer_list = self.eliminate_space(response.xpath('//h3[@class="light semitight"]//a/@href').extract())
-		
-		for answer in answer_list:
+		link_list = response.xpath('//a[@class="v-serp-block-link"]')
 
-			link = self.domain + answer
-
-			yield scrapy.Request(link, 
-						callback=self.parse_answer, 
-						meta={
-							'proxy' : random.choice(self.proxy_list)
-						}
-					)
-
-
-	def parse_answer(self, response):
-
-		attorney_list = response.xpath('//div[@class="card row qa-lawyer-card qa-answer v-borderless"]')
-
-		for attorney in attorney_list:
+		for link in link_list:
 
 			item = ChainItem()
 
-			detail = attorney.xpath('.//div[contains(@class, "qa-lawyer-info")]//a')
+			item['Full_Name'] = self.validate(''.join(link.xpath('.//text()').extract()))
 
-			item['Full_Name'] = self.validate(''.join(detail[0].xpath('.//text()').extract()))
+			link = self.domain + link.xpath('./@href').extract_first()
 
-			link = self.domain + detail[0].xpath('./@href').extract_first()
+			yield scrapy.Request(link, headers=self.headers, callback=self.parse_profile, meta={ 'item' : item, 'proxy' : random.choice(self.proxy_list) })
 
-			item['Mobile_Number'] = self.validate(''.join(attorney.xpath('.//span[contains(@class, "number-revealed")]//text()').extract())).replace('tel:', '')
+		next_link = response.xpath('//li[@class="pagination-next"]//a/@href').extract_first()
 
-			item['QA_Date'] = response.xpath('//div[@id="qa-location-display"]//time//text()').extract_first()
+		if next_link != None:
 
-			item['Link_Via'] = response.url
+			next_link = self.domain + next_link
 
-			yield scrapy.Request(link, 
-						callback=self.parse_profile, 
-						meta={
-							'item' : item,
-							'proxy' : random.choice(self.proxy_list)
-						}
-					)
+			yield scrapy.Request(next_link, callback=self.parse_list,
+					headers=self.headers,
+					meta={
+						'proxy' : random.choice(self.proxy_list),
+					})
 
 
 	def parse_profile(self, response):
@@ -159,6 +168,8 @@ class avvo(scrapy.Spider):
 
 					item['Office_Phone'] = self.validate(''.join(contact.xpath('.//span[@class="js-v-phone-replace-text"]//text()').extract()))
 
+					item['Mobile_Number'] = self.validate(''.join(contact.xpath('.//span[@class="js-v-phone-replace-text"]//text()').extract()))
+
 				if 'fax' in detail.lower():
 
 					item['Office_Fax'] = self.validate(''.join(contact.xpath('.//span[@class="js-v-phone-replace-text"]//text()').extract()))
@@ -171,7 +182,10 @@ class avvo(scrapy.Spider):
 
 			item['Avatar'] = 'https:' + response.xpath('//div[contains(@class, "downgraded-card-body")]//img/@src').extract_first()
 
-			item['Review'] = self.validate(response.xpath('//section[@id="client_reviews"]//span[@class="text-muted"]//text()').extract_first().replace('(', '').replace(')',''))
+			try:
+				item['Review'] = self.validate(response.xpath('//section[@id="client_reviews"]//span[@class="text-muted"]//text()').extract_first().replace('(', '').replace(')',''))
+			except:
+				pass
 
 			item['Rating'] = response.xpath('//div[contains(@class, "downgraded-card-body")]//span[@class="avvo-rating-modal-info"]/@data-rating').extract_first()
 

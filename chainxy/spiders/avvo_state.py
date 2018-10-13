@@ -31,10 +31,14 @@ import pdb
 
 import usaddress
 
+import math
 
-class avvo(scrapy.Spider):
+import dropbox
 
-	name = 'avvo'
+
+class avvo_state(scrapy.Spider):
+
+	name = 'avvo_state'
 
 	domain = 'https://www.avvo.com'
 
@@ -42,6 +46,13 @@ class avvo(scrapy.Spider):
 
 	output = []
 
+
+	headers = {
+		"accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
+		"accept-encoding": "gzip, deflate, br",
+		"upgrade-insecure-requests": "1",
+		"user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/69.0.3497.100 Safari/537.36"
+	}
 
 	def __init__(self):
 
@@ -53,75 +64,88 @@ class avvo(scrapy.Spider):
 
 			self.proxy_list =  [ "http://" + x.strip() for x in text.readlines()]
 
+		access_token = '************************************'
+
+		self.dbx = dropbox.Dropbox(access_token)
+
 	
 	def start_requests(self):
 
-		url = "https://www.avvo.com/free-legal-advice/recent"
+		url = "https://www.avvo.com/find-a-lawyer/"
 
 		yield scrapy.Request(url, 
-					callback=self.parse, 
+					callback=self.parse_state, 
+					headers=self.headers,
 					meta={
 						'proxy' : random.choice(self.proxy_list),
 					}
-				) 
+				)
 
-	def parse(self, response):
 
-		for idx in range(5000, 10000): 
+	def parse_state(self, response):
 
-			url = "https://www.avvo.com/free-legal-advice/recent?page=" + str(idx)
+		state_list = response.xpath('//div[@id="js-top-state-link-farm"]//a/@href').extract()
 
-			yield scrapy.Request(url, 
-						callback=self.parse_list, 
-						meta={
-							'proxy' : random.choice(self.proxy_list),
-						}
-					) 
+		for state in state_list[31:]:
+
+			url = self.domain + state
+
+			yield scrapy.Request(url, callback=self.parse_category, 
+					headers = self.headers,
+					meta={
+						'proxy' : random.choice(self.proxy_list),
+					})
+
+
+	def parse_category(self, response):
+
+		category_list = response.xpath('//div[@class="bubble-farm"]//div[contains(@class, "pa-list")]//a/@href').extract()
+
+		for category in category_list:
+
+			url = self.domain + category
+
+			yield scrapy.Request(url, callback=self.parse_list, 
+					headers = self.headers,
+					meta={
+						'proxy' : random.choice(self.proxy_list),
+					})
+
 
 	def parse_list(self, response):
 
-		answer_list = self.eliminate_space(response.xpath('//h3[@class="light semitight"]//a/@href').extract())
-		
-		for answer in answer_list:
+		total_count = response.xpath('//span[@id="title-total-count"]//text()').extract_first()
 
-			link = self.domain + answer
+		if total_count:
+			total_count = int(total_count.lower().strip()[1:-1].replace('results', '').strip())
 
-			yield scrapy.Request(link, 
-						callback=self.parse_answer, 
-						meta={
-							'proxy' : random.choice(self.proxy_list)
-						}
-					)
+		page_count = int(math.ceil(total_count / 10.0))
+
+		for idx in range(1, page_count+1):
+
+			next_link = response.url + '?utf8=%E2%9C%93&page='+str(idx)+'&sort=relevancy'
+
+			yield scrapy.Request(next_link, callback=self.parse_page,
+					headers=self.headers,
+					meta={
+						'proxy' : random.choice(self.proxy_list),
+					})
 
 
-	def parse_answer(self, response):
+	def parse_page(self, response):
 
-		attorney_list = response.xpath('//div[@class="card row qa-lawyer-card qa-answer v-borderless"]')
+		link_list = response.xpath('//a[@class="v-serp-block-link"]')
 
-		for attorney in attorney_list:
+		for link in link_list:
 
 			item = ChainItem()
 
-			detail = attorney.xpath('.//div[contains(@class, "qa-lawyer-info")]//a')
+			item['Full_Name'] = self.validate(''.join(link.xpath('.//text()').extract()))
 
-			item['Full_Name'] = self.validate(''.join(detail[0].xpath('.//text()').extract()))
+			link = self.domain + link.xpath('./@href').extract_first()
 
-			link = self.domain + detail[0].xpath('./@href').extract_first()
-
-			item['Mobile_Number'] = self.validate(''.join(attorney.xpath('.//span[contains(@class, "number-revealed")]//text()').extract())).replace('tel:', '')
-
-			item['QA_Date'] = response.xpath('//div[@id="qa-location-display"]//time//text()').extract_first()
-
-			item['Link_Via'] = response.url
-
-			yield scrapy.Request(link, 
-						callback=self.parse_profile, 
-						meta={
-							'item' : item,
-							'proxy' : random.choice(self.proxy_list)
-						}
-					)
-
+			yield scrapy.Request(link, headers=self.headers, callback=self.parse_profile, meta={ 'item' : item, 'proxy' : random.choice(self.proxy_list) })
+	
 
 	def parse_profile(self, response):
 
@@ -159,6 +183,8 @@ class avvo(scrapy.Spider):
 
 					item['Office_Phone'] = self.validate(''.join(contact.xpath('.//span[@class="js-v-phone-replace-text"]//text()').extract()))
 
+					item['Mobile_Number'] = self.validate(''.join(contact.xpath('.//span[@class="js-v-phone-replace-text"]//text()').extract()))
+
 				if 'fax' in detail.lower():
 
 					item['Office_Fax'] = self.validate(''.join(contact.xpath('.//span[@class="js-v-phone-replace-text"]//text()').extract()))
@@ -171,7 +197,10 @@ class avvo(scrapy.Spider):
 
 			item['Avatar'] = 'https:' + response.xpath('//div[contains(@class, "downgraded-card-body")]//img/@src').extract_first()
 
-			item['Review'] = self.validate(response.xpath('//section[@id="client_reviews"]//span[@class="text-muted"]//text()').extract_first().replace('(', '').replace(')',''))
+			try:
+				item['Review'] = self.validate(response.xpath('//section[@id="client_reviews"]//span[@class="text-muted"]//text()').extract_first().replace('(', '').replace(')',''))
+			except:
+				pass
 
 			item['Rating'] = response.xpath('//div[contains(@class, "downgraded-card-body")]//span[@class="avvo-rating-modal-info"]/@data-rating').extract_first()
 
@@ -252,15 +281,19 @@ class avvo(scrapy.Spider):
 
 		yield item
 
-		# yield scrapy.Request(item['Avatar'], callback=self.download_image)
+		yield scrapy.Request(item['Avatar'], callback=self.download_image)
 
 
 	def download_image(self, response):
 
-		file_name = 'images/'+response.url.split('/')[-1]
+		file_name = response.url.split('/')[-1]
 
-		with open(file_name, 'wb') as f:
-			f.write(response.body)
+		file_to = '/Profile Avatars Avvo/' + file_name
+
+		self.dbx.files_upload(response.body, file_to)
+
+		# with open(file_name, 'wb') as f:
+		# 	f.write(response.body)
 
 
 	def validate(self, item):
