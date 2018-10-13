@@ -5,7 +5,9 @@ Collects the informations (Full Name, Address, Reviews, Rating, Edicuations, Wor
 ## How to install
 
 `pip install scrapy`
-`pip install usaddrss`
+
+`pip install usaddress`
+
 `pip install dropbox`
 
 
