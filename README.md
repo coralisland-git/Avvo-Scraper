@@ -10,6 +10,8 @@ Collects the informations (Full Name, Address, Reviews, Rating, Edicuations, Wor
 
 `pip install dropbox`
 
+`pip install nameparser`
+
 
 ## How to Run
 
