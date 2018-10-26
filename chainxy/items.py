@@ -10,9 +10,15 @@ from scrapy.item import Item, Field
 
 class ChainItem(Item):
 
-	QA_Date = Field()
+	Last_Answered_Date = Field()
 
 	Full_Name = Field()
+
+	First_Name = Field()
+
+	Middle_Name = Field()
+
+	Last_Name = Field()
 
 	Mobile_Number = Field()
 

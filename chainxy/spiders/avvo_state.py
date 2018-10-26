@@ -64,7 +64,7 @@ class avvo_state(scrapy.Spider):
 
 			self.proxy_list =  [ "http://" + x.strip() for x in text.readlines()]
 
-		access_token = '************************************'
+		access_token = 'Yatg9zZ6OLAAAAAAAAAAKEuTu64N8iip_bBD5JgvWL5_TNb9mNPIUn00bt19Qh-2'
 
 		self.dbx = dropbox.Dropbox(access_token)
 
@@ -86,7 +86,7 @@ class avvo_state(scrapy.Spider):
 
 		state_list = response.xpath('//div[@id="js-top-state-link-farm"]//a/@href').extract()
 
-		for state in state_list[31:]:
+		for state in state_list[40:45]:
 
 			url = self.domain + state
 
@@ -290,7 +290,9 @@ class avvo_state(scrapy.Spider):
 
 		file_to = '/Profile Avatars Avvo/' + file_name
 
-		self.dbx.files_upload(response.body, file_to)
+		if 'ghost' not in file_name:
+
+			self.dbx.files_upload(response.body, file_to)
 
 		# with open(file_name, 'wb') as f:
 		# 	f.write(response.body)

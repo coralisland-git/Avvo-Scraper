@@ -31,6 +31,10 @@ import pdb
 
 import usaddress
 
+import dropbox
+
+from nameparser import HumanName
+
 
 class avvo_all(scrapy.Spider):
 
@@ -46,8 +50,6 @@ class avvo_all(scrapy.Spider):
 		"accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
 		"accept-encoding": "gzip, deflate, br",
 		"upgrade-insecure-requests": "1",
-		"cookie": "_persistent_session_id=BAh7BkkiD3Nlc3Npb25faWQGOgZFVEkiKTU5YWExZTMyLTNiN2ItNGNlMy1h%0AMWMzLTI2MDBlNzZkMmJkZQY7AFQ%3D%0A; ibeugdpr=NOTINEU:1538849072; pxvid=7ab64f00-cb15-11e8-8eb6-df92c2817ad6; _pxvid=7ab64f00-cb15-11e8-8eb6-df92c2817ad6; _profile_persistent_session_id=BAh7BkkiD3Nlc3Npb25faWQGOgZFVEkiKTY3MTE3MGMxLTFlNDUtNGE1NC05%0AMzkxLTI2MjE1ZDVlNTkxOQY7AFQ%3D%0A--606a9a83562f36d14ee91363f1cf11081721af5c; avvo-login=BAh7BkkiD3Nlc3Npb25faWQGOgZFVEkiKTNlZDlmN2QxLTAyOGMtNDM2ZC05%0AZDc2LTFmYThkYTdkY2NiOQY7AFQ%3D%0A--efacab1e099f91e22997646a35d4803229207ebe; _session_id=acde2dcb3b195947466a8ede6438c9cf; serp_search_prev_sig=99914b932bd37a50b983c5e7c90ae93b; serp_search_sig=25bcb490f7e93c9a3255c509fbf530d499914b932bd37a50b983c5e7c90ae93b; maxLength=925; aa_session_count=1; aa_persistent_session_id=59aa1e32-3b7b-4ce3-a1c3-2600e76d2bde; aa_session_id=59aa1e32-3b7b-4ce3-a1c3-2600e76d2bde.1",
-		"if-none-match": 'W/"95e44b7577988b56cb5880f812b188b4"',
 		"user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/69.0.3497.100 Safari/537.36"
 	}
 
@@ -62,6 +64,10 @@ class avvo_all(scrapy.Spider):
 
 			self.proxy_list =  [ "http://" + x.strip() for x in text.readlines()]
 
+		access_token = 'Yatg9zZ6OLAAAAAAAAAAKEuTu64N8iip_bBD5JgvWL5_TNb9mNPIUn00bt19Qh-2'
+
+		self.dbx = dropbox.Dropbox(access_token)
+
 	
 	def start_requests(self):
 
@@ -75,11 +81,12 @@ class avvo_all(scrapy.Spider):
 					}
 				)
 
+
 	def parse_category(self, response):
 
 		category_list = response.xpath('//div[@id="areas-of-law"]//div[@class="v-content-wrapper"]//a/@href').extract()
 
-		for category in category_list[110: 132]:
+		for category in category_list:
 
 			url = self.domain + category
 
@@ -111,13 +118,9 @@ class avvo_all(scrapy.Spider):
 
 		for link in link_list:
 
-			item = ChainItem()
-
-			item['Full_Name'] = self.validate(''.join(link.xpath('.//text()').extract()))
-
 			link = self.domain + link.xpath('./@href').extract_first()
 
-			yield scrapy.Request(link, headers=self.headers, callback=self.parse_profile, meta={ 'item' : item, 'proxy' : random.choice(self.proxy_list) })
+			yield scrapy.Request(link, headers=self.headers, callback=self.parse_profile, meta={ 'proxy' : random.choice(self.proxy_list) })
 
 		next_link = response.xpath('//li[@class="pagination-next"]//a/@href').extract_first()
 
@@ -134,11 +137,13 @@ class avvo_all(scrapy.Spider):
 
 	def parse_profile(self, response):
 
-		item =response.meta['item']
+		item = ChainItem()
 
 		check = self.validate(''.join(response.xpath('//div[contains(@class, "downgraded-card-title")]//text()').extract()))
 
-		if check == '':
+		if check == '':		
+
+			item['Full_Name'] = ''.join(response.xpath('//span[@itemprop="name"]')[0].xpath('.//text()').extract())
 
 			item['Avatar'] = 'https:' + response.xpath('//div[contains(@class, "v-lawyer-card-wrapper")]//img/@src').extract_first()
 
@@ -179,6 +184,8 @@ class avvo_all(scrapy.Spider):
 			item['Email'] = ''
 
 		else:
+
+			item['Full_Name'] = ''.join(response.xpath('//div[@class="downgraded-card-body"]//h2//text()').extract())
 
 			item['Avatar'] = 'https:' + response.xpath('//div[contains(@class, "downgraded-card-body")]//img/@src').extract_first()
 
@@ -264,17 +271,58 @@ class avvo_all(scrapy.Spider):
 
 		item['Link'] = response.url
 
+		parsed_name = HumanName(item['Full_Name'])
+
+		name_string = response.url.split('/')[-1].split('-')
+
+		item['First_Name'] = name_string[-3]
+
+		item['Last_Name'] = name_string[-2]
+
+		item['Middle_Name'] = parsed_name['middle']
+
+		answered_date_link = response.xpath('//td[contains(@class, "h2 text-right")][1]//a/@href').extract_first()
+
+		if answered_date_link:
+
+			answered_date_link = self.domain + answered_date_link
+
+			yield scrapy.Request(answered_date_link, 
+					callback=self.parse_answered_date, 
+					headers=self.headers,
+					meta={
+						'proxy' : random.choice(self.proxy_list),
+						'item' : item
+					}
+				)
+
+		else:
+
+			yield item
+
+
+	def parse_answered_date(self, response):
+
+		item = response.meta['item']
+
+		last_activated = response.xpath('//time[@data-local="time-ago"][1]/@datetime').extract_first().split('T')[0]
+
+		item['Last_Answered_Date'] = last_activated
+
 		yield item
 
-		# yield scrapy.Request(item['Avatar'], callback=self.download_image)
+		yield scrapy.Request(item['Avatar'], callback=self.download_image)
 
 
 	def download_image(self, response):
 
-		file_name = 'images/'+response.url.split('/')[-1]
+		file_name = response.url.split('/')[-1]
 
-		with open(file_name, 'wb') as f:
-			f.write(response.body)
+		file_to = '/Profile Avatars Avvo/' + file_name
+
+		if 'ghost' not in file_name:
+
+			self.dbx.files_upload(response.body, file_to)
 
 
 	def validate(self, item):

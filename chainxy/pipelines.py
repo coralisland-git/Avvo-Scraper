@@ -42,7 +42,7 @@ class ChainxyPipeline(object):
         
         self.exporter = CsvItemExporter(file)
 
-        self.exporter.fields_to_export = ['Full_Name',
+        self.exporter.fields_to_export = ['First_Name','Middle_Name', 'Last_Name', 'Last_Answered_Date',
             'Free_or_Advertiser', 'Avatar','Rating',
             'Review', 'Address_Street_Line_1',
             'Address_Street_Line_2', 'City', 'State', 'Zip_Code',
